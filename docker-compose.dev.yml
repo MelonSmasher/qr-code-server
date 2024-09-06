@@ -1,0 +1,193 @@
+name: qr-code-server
+
+networks:
+    qr-code-server-network:
+        driver: bridge
+
+volumes:
+    qr-code-server-db:
+        driver: local
+    qr-code-server-cache:
+        driver: local
+    qr-code-server-caddy-data:
+        driver: local
+    qr-code-server-caddy-config:
+        driver: local
+
+services:
+    caddy:
+        depends_on:
+            - php-fpm
+        image: caddy-cloudflare
+        build:
+            context: .
+            dockerfile: Dockerfile.caddy
+            x-bake:
+                platforms:
+                    - linux/amd64
+        container_name: caddy
+        restart: unless-stopped
+        ports:
+            - ${APP_HTTP_PORT}:${APP_HTTP_PORT}
+            - ${APP_SSL_PORT}:${APP_SSL_PORT}
+        volumes:
+            - type: bind
+              source: .
+              target: /var/www/html
+              read_only: true
+            - type: bind
+              source: Caddyfile
+              target: /etc/caddy/Caddyfile
+              read_only: true
+            - type: volume
+              source: qr-code-server-caddy-data
+              target: /data
+            - type: volume
+              source: qr-code-server-caddy-config
+              target: /config
+        environment:
+            - APP_HOSTNAME
+            - CADDY_CLOUDFLARE_API_TOKEN
+            - APP_HTTP_PORT
+            - APP_SSL_PORT
+        networks:
+            - qr-code-server-network
+
+    php-fpm:
+        depends_on:
+            - mariadb
+            - valkey
+        image: qr-code-server
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+            x-bake:
+                platforms:
+                    - linux/amd64
+        volumes:
+            - type: bind
+              source: .
+              target: /var/www/html
+        container_name: php-fpm
+        ports:
+            - 9000:9000
+        restart: unless-stopped
+        user: www-data
+        # Check the .env file for the environment variables
+        environment:
+            - APP_NAME
+            - APP_ENV
+            - APP_KEY
+            - APP_DEBUG
+            - APP_TIMEZONE
+            - APP_HOSTNAME
+            - APP_HTTP_PORT
+            - APP_SSL_PORT
+            - APP_PORT
+            - APP_PROTOCOL
+            - APP_URL
+            - APP_LOCALE
+            - APP_FALLBACK_LOCALE
+            - APP_FAKER_LOCALE
+            - APP_MAINTENANCE_DRIVER
+            - BCRYPT_ROUNDS
+            - LOG_CHANNEL
+            - LOG_STACK
+            - LOG_DEPRECATIONS_CHANNEL
+            - LOG_LEVEL
+            - DB_CONNECTION
+            - DB_HOST
+            - DB_PORT
+            - DB_DATABASE
+            - DB_USERNAME
+            - DB_PASSWORD
+            - SESSION_DRIVER
+            - SESSION_LIFETIME
+            - SESSION_ENCRYPT
+            - SESSION_PATH
+            - SESSION_DOMAIN
+            - BROADCAST_CONNECTION
+            - FILESYSTEM_DISK
+            - QUEUE_CONNECTION
+            - CACHE_STORE
+            - CACHE_PREFIX
+            - MEMCACHED_HOST
+            - REDIS_CLIENT
+            - REDIS_HOST
+            - REDIS_PASSWORD
+            - REDIS_PORT
+            - MAIL_MAILER
+            - MAIL_HOST
+            - MAIL_PORT
+            - MAIL_USERNAME
+            - MAIL_PASSWORD
+            - MAIL_ENCRYPTION
+            - MAIL_FROM_ADDRESS
+            - MAIL_FROM_NAME
+            - AWS_ACCESS_KEY_ID
+            - AWS_SECRET_ACCESS_KEY
+            - AWS_DEFAULT_REGION
+            - AWS_BUCKET
+            - AWS_USE_PATH_STYLE_ENDPOINT
+            - VITE_APP_NAME
+            - LOCAL_ADMIN_NAME
+            - LOCAL_ADMIN_EMAIL
+            - LOCAL_ADMIN_PASSWORD
+            - LDAP_CACHE
+            - LDAP_LOGGING
+            - LDAP_CONNECTION
+            - LDAP_CONNECTIONS
+            - LDAP_DEFAULT_HOSTS
+            - LDAP_DEFAULT_USERNAME
+            - LDAP_DEFAULT_PASSWORD
+            - LDAP_DEFAULT_PORT
+            - LDAP_DEFAULT_BASE_DN
+            - LDAP_DEFAULT_TIMEOUT
+            - LDAP_DEFAULT_SSL
+            - LDAP_DEFAULT_TLS
+            - LDAP_DEFAULT_SASL
+        networks:
+            - qr-code-server-network
+
+    mariadb:
+        image: mariadb:11
+        container_name: mariadb
+        restart: unless-stopped
+        ports:
+            - 3306:3306
+        environment:
+            MARIADB_DATABASE: ${DB_DATABASE}
+            MARIADB_USER: ${DB_USERNAME}
+            MARIADB_PASSWORD: ${DB_PASSWORD}
+            MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "healthcheck.sh",
+                    "--su=mysql",
+                    "--connect",
+                    "--innodb_initialized",
+                ]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+        volumes:
+            - type: volume
+              source: qr-code-server-db
+              target: /var/lib/mysql
+        networks:
+            - qr-code-server-network
+
+    valkey:
+        image: valkey/valkey:alpine
+        container_name: valkey
+        restart: unless-stopped
+        ports:
+            - 6379:6379
+        volumes:
+            - type: volume
+              source: qr-code-server-cache
+              target: /data
+        networks:
+            - qr-code-server-network
